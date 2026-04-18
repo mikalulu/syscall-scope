@@ -2,4 +2,4 @@
 
 https://mikalulu.github.io/syscall-scope/
 
-[]('Screenshot from 2026-04-18 10-43-41.png')
+![]('Screenshot from 2026-04-18 10-43-41.png')
