@@ -1,0 +1,996 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>syscall.scope — strace log analyzer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0a0e0d; --bg-elev:#0f1513; --bg-panel:#121a17;
+  --border:#1f2a26; --border-hi:#2c3b36;
+  --fg:#c8d4cd; --fg-dim:#6a7a73; --fg-mute:#3d4a44;
+  --accent:#d4a84b; --accent-hi:#f0c060;
+  --ok:#7ab87a; --warn:#e5a04b; --err:#c85a5a;
+  --trace:#4a9eb8; --mag:#b87ac8;
+  --glow: 0 0 12px rgba(212,168,75,0.15);
+  --scan: repeating-linear-gradient(0deg, rgba(255,255,255,0.012) 0 1px, transparent 1px 3px);
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;height:100%;background:var(--bg);color:var(--fg);
+  font-family:'JetBrains Mono',monospace;font-size:12.5px;line-height:1.5}
+body{background-image:var(--scan), radial-gradient(ellipse at top, #0e1a17 0%, #070a09 70%);overflow:hidden}
+
+header{display:flex;align-items:center;gap:24px;padding:14px 22px;
+  border-bottom:1px solid var(--border);background:linear-gradient(180deg,#0d1411,#0a0e0d);
+  position:relative;z-index:10}
+.logo{font-family:'Space Mono',monospace;font-weight:700;font-size:15px;letter-spacing:0.02em;
+  color:var(--accent);text-shadow:var(--glow)}
+.logo::before{content:"▮ ";color:var(--accent-hi);animation:blink 1.4s step-end infinite}
+@keyframes blink{50%{opacity:0.3}}
+.logo span{color:var(--fg);font-weight:400;margin-left:6px}
+.subtitle{color:var(--fg-dim);font-size:11px;letter-spacing:0.08em;text-transform:uppercase}
+.status{margin-left:auto;display:flex;gap:18px;font-size:11px;color:var(--fg-dim)}
+.status b{color:var(--accent);font-weight:500}
+.status .sep{color:var(--fg-mute)}
+
+main{display:grid;grid-template-columns:340px 1fr;height:calc(100vh - 49px)}
+
+aside{border-right:1px solid var(--border);background:var(--bg-elev);
+  display:flex;flex-direction:column;overflow:hidden}
+.panel-head{padding:10px 16px;border-bottom:1px solid var(--border);
+  color:var(--fg-dim);font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;
+  display:flex;justify-content:space-between;align-items:center}
+.panel-head::before{content:"╱╱ ";color:var(--fg-mute)}
+
+.input-area{padding:14px 16px;border-bottom:1px solid var(--border)}
+textarea{width:100%;height:160px;background:#060908;color:var(--fg);
+  border:1px solid var(--border);border-radius:2px;padding:10px;
+  font-family:inherit;font-size:11.5px;resize:vertical;outline:none;transition:border-color .15s}
+textarea:focus{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+
+.btn-row{display:flex;gap:8px;margin-top:10px}
+button{flex:1;padding:8px 10px;background:transparent;color:var(--fg);
+  border:1px solid var(--border-hi);border-radius:2px;cursor:pointer;
+  font-family:inherit;font-size:11px;letter-spacing:0.06em;text-transform:uppercase;transition:all .15s}
+button:hover{background:var(--accent);color:var(--bg);border-color:var(--accent)}
+button.primary{border-color:var(--accent);color:var(--accent)}
+button.primary:hover{background:var(--accent);color:var(--bg);box-shadow:0 0 16px rgba(212,168,75,0.3)}
+
+.filter-badge{padding:6px 12px;background:rgba(212,168,75,0.08);border:1px solid var(--accent);
+  color:var(--accent);font-size:10.5px;margin:0 16px 8px;border-radius:2px;
+  display:flex;justify-content:space-between;align-items:center}
+.filter-badge .x{cursor:pointer;color:var(--fg-dim)}
+.filter-badge .x:hover{color:var(--err)}
+
+.process-list{flex:1;overflow-y:auto;padding:8px 0}
+.proc-item{padding:8px 16px;border-left:2px solid transparent;cursor:pointer;
+  display:flex;align-items:center;gap:10px;transition:all .1s}
+.proc-item:hover{background:rgba(212,168,75,0.05)}
+.proc-item.active{border-left-color:var(--accent);background:rgba(212,168,75,0.08)}
+.proc-pid{color:var(--accent);font-weight:500;min-width:52px}
+.proc-meta{color:var(--fg-dim);font-size:10.5px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.proc-count{color:var(--fg);font-size:10.5px}
+
+section.view{display:flex;flex-direction:column;overflow:hidden}
+.tabs{display:flex;border-bottom:1px solid var(--border);background:var(--bg-elev);padding:0 8px}
+.tab{padding:11px 18px;color:var(--fg-dim);cursor:pointer;
+  font-size:11px;letter-spacing:0.08em;text-transform:uppercase;
+  border-bottom:1px solid transparent;margin-bottom:-1px;transition:all .12s}
+.tab:hover{color:var(--fg)}
+.tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+.tab-num{color:var(--fg-mute);margin-right:6px}
+.tab.active .tab-num{color:var(--accent-hi)}
+
+.view-body{flex:1;overflow:auto;position:relative;background:var(--bg)}
+.pane{display:none;padding:20px 24px;min-height:100%}
+.pane.active{display:block}
+
+#timeline-svg,#flame-svg,#tree-svg{width:100%;display:block;background:#060908;
+  border:1px solid var(--border);border-radius:2px}
+.tl-axis line{stroke:var(--fg-mute);stroke-width:0.5}
+.tl-axis text{fill:var(--fg-dim);font-size:9.5px;font-family:inherit}
+.tl-lane-bg{fill:#0a0e0d}
+.tl-lane-bg.alt{fill:#0c110f}
+.tl-lane-label{fill:var(--fg);font-size:10.5px;font-family:inherit;font-weight:500}
+.tl-lane-label-pid{fill:var(--accent)}
+.tl-syscall{cursor:pointer;transition:opacity .1s}
+.tl-syscall:hover{opacity:0.7;filter:brightness(1.3)}
+.tl-grid{stroke:var(--border);stroke-width:0.5;stroke-dasharray:2 4}
+
+.tooltip{position:absolute;background:#050807;border:1px solid var(--accent);
+  padding:8px 12px;font-size:11px;pointer-events:none;
+  box-shadow:0 4px 20px rgba(0,0,0,0.8);border-radius:2px;z-index:100;
+  max-width:360px;white-space:pre-wrap;word-break:break-all;display:none;
+  font-family:inherit;line-height:1.55}
+.tooltip b{color:var(--accent)}
+.tooltip .ret-ok{color:var(--ok)}
+.tooltip .ret-err{color:var(--err)}
+.tooltip .dim{color:var(--fg-dim)}
+
+.flame-bar{cursor:pointer;stroke:#060908;stroke-width:1}
+.flame-bar:hover{stroke:var(--accent);stroke-width:1.5}
+.flame-bar.selected{stroke:var(--accent-hi);stroke-width:2}
+.flame-label{fill:#000;font-size:10px;font-family:inherit;pointer-events:none;font-weight:500}
+
+.stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:22px}
+.stat-card{background:var(--bg-panel);border:1px solid var(--border);padding:14px 16px;
+  border-radius:2px;position:relative;overflow:hidden}
+.stat-card::before{content:"";position:absolute;top:0;left:0;width:3px;height:100%;
+  background:var(--accent);box-shadow:0 0 8px var(--accent)}
+.stat-card .k{color:var(--fg-dim);font-size:10px;letter-spacing:0.1em;
+  text-transform:uppercase;margin-bottom:6px}
+.stat-card .v{color:var(--accent);font-size:22px;font-weight:500;font-family:'Space Mono',monospace}
+.stat-card .u{color:var(--fg-dim);font-size:11px;margin-left:4px}
+
+.stat-split{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.stat-box{background:var(--bg-panel);border:1px solid var(--border);border-radius:2px;padding:14px 16px}
+.stat-box h3{margin:0 0 12px 0;color:var(--fg-dim);font-size:10.5px;letter-spacing:0.14em;
+  text-transform:uppercase;font-weight:400}
+.stat-box h3::before{content:"▸ ";color:var(--accent)}
+
+.bar-chart{display:flex;flex-direction:column;gap:6px}
+.bar-row{display:grid;grid-template-columns:130px 1fr 70px;gap:10px;align-items:center;font-size:11px}
+.bar-name{color:var(--fg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  font-family:'Space Mono',monospace}
+.bar-track{height:14px;background:#060908;border:1px solid var(--border);position:relative;border-radius:1px;overflow:hidden}
+.bar-fill{display:block;height:100%;background:linear-gradient(90deg,var(--accent),var(--accent-hi));
+  box-shadow:0 0 6px rgba(212,168,75,0.4)}
+.bar-val{color:var(--fg-dim);text-align:right;font-variant-numeric:tabular-nums}
+
+.errno-row{display:grid;grid-template-columns:110px 1fr 50px;gap:10px;padding:5px 0;
+  font-size:11px;border-bottom:1px solid var(--border)}
+.errno-row:last-child{border-bottom:none}
+.errno-name{color:var(--err);font-weight:500}
+.errno-desc{color:var(--fg-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.errno-count{color:var(--fg);text-align:right;font-variant-numeric:tabular-nums}
+
+.tree-node-box{fill:var(--bg-panel);stroke:var(--accent);stroke-width:1}
+.tree-node-box.root{stroke:var(--accent-hi);stroke-width:2}
+.tree-node-text{fill:var(--fg);font-size:11px;font-family:inherit}
+.tree-node-pid{fill:var(--accent);font-weight:500;font-size:12px}
+.tree-node-cmd{fill:var(--fg-dim);font-size:10px}
+.tree-edge{stroke:var(--fg-mute);stroke-width:1;fill:none}
+.tree-edge-label{fill:var(--trace);font-size:9.5px;font-family:inherit}
+
+.empty{display:flex;align-items:center;justify-content:center;height:300px;color:var(--fg-dim);font-size:12px}
+.empty::before{content:"◌ ";color:var(--fg-mute);margin-right:8px}
+
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-track{background:var(--bg)}
+::-webkit-scrollbar-thumb{background:var(--border-hi);border-radius:0}
+::-webkit-scrollbar-thumb:hover{background:var(--fg-mute)}
+
+.legend{display:flex;gap:14px;margin-bottom:12px;font-size:10.5px;color:var(--fg-dim);flex-wrap:wrap}
+.legend-item{display:flex;align-items:center;gap:5px}
+.legend-swatch{width:10px;height:10px;border-radius:1px}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">syscall.scope<span>// strace analyzer</span></div>
+  <div class="subtitle">v0.1 · pure ES · no deps</div>
+  <div class="status">
+    <span>events: <b id="s-events">0</b></span><span class="sep">│</span>
+    <span>processes: <b id="s-procs">0</b></span><span class="sep">│</span>
+    <span>duration: <b id="s-dur">0</b>ms</span><span class="sep">│</span>
+    <span>errors: <b id="s-errs">0</b></span>
+  </div>
+</header>
+
+<main>
+  <aside>
+    <div class="panel-head">input · strace log</div>
+    <div class="input-area">
+      <textarea id="log-input" spellcheck="false" placeholder="paste strace -f -tt -T output here..."></textarea>
+      <div class="btn-row">
+        <button id="btn-load-sample" class="primary">load sample</button>
+        <button id="btn-parse">parse</button>
+        <button id="btn-clear">clear</button>
+      </div>
+    </div>
+    <div id="filter-wrap"></div>
+    <div class="panel-head">processes <span id="proc-count" style="color:var(--accent)">0</span></div>
+    <div class="process-list" id="proc-list"></div>
+  </aside>
+
+  <section class="view">
+    <div class="tabs">
+      <div class="tab active" data-pane="timeline"><span class="tab-num">01</span>timeline</div>
+      <div class="tab" data-pane="flame"><span class="tab-num">02</span>flame graph</div>
+      <div class="tab" data-pane="stats"><span class="tab-num">03</span>statistics</div>
+      <div class="tab" data-pane="tree"><span class="tab-num">04</span>process tree</div>
+    </div>
+    <div class="view-body">
+      <div class="pane active" id="pane-timeline">
+        <div class="legend" id="tl-legend"></div>
+        <svg id="timeline-svg"></svg>
+      </div>
+      <div class="pane" id="pane-flame">
+        <div class="legend">
+          <span style="color:var(--fg-dim)">width = cumulative time · click bar to filter timeline · hover for details</span>
+        </div>
+        <svg id="flame-svg"></svg>
+      </div>
+      <div class="pane" id="pane-stats">
+        <div class="stats-grid" id="stats-cards"></div>
+        <div class="stat-split">
+          <div class="stat-box"><h3>top syscalls by count</h3><div class="bar-chart" id="top-count"></div></div>
+          <div class="stat-box"><h3>top syscalls by total time</h3><div class="bar-chart" id="top-time"></div></div>
+        </div>
+        <div class="stat-split" style="margin-top:16px">
+          <div class="stat-box"><h3>slowest individual calls</h3><div class="bar-chart" id="top-slow"></div></div>
+          <div class="stat-box"><h3>errno distribution</h3><div id="errno-dist"></div></div>
+        </div>
+      </div>
+      <div class="pane" id="pane-tree">
+        <div class="legend">
+          <span style="color:var(--fg-dim)">reconstructed from clone/fork/vfork/execve · arrows show parent → child</span>
+        </div>
+        <svg id="tree-svg"></svg>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div class="tooltip" id="tooltip"></div>
+
+<script type="module">
+/* ════════════════════════════════════════════════════════════════════════
+   syscall.scope — pure ES module, zero dependencies
+   Pipeline: raw log → parser → model → 4 views (timeline, flame, stats, tree)
+   ════════════════════════════════════════════════════════════════════════ */
+
+/* ── MODULE: sample.js ─────────────────────────────────────────────────── */
+const SAMPLE_LOG = `1234  10:15:23.001234 execve("/bin/ls", ["ls", "-la", "/tmp"], 0x7fff12345678 /* 45 vars */) = 0 <0.000234>
+1234  10:15:23.002100 brk(NULL)         = 0x55aabbcc1000 <0.000012>
+1234  10:15:23.002234 access("/etc/ld.so.preload", R_OK) = -1 ENOENT (No such file or directory) <0.000015>
+1234  10:15:23.002456 openat(AT_FDCWD, "/etc/ld.so.cache", O_RDONLY|O_CLOEXEC) = 3 <0.000028>
+1234  10:15:23.002589 fstat(3, {st_mode=S_IFREG|0644, st_size=94321, ...}) = 0 <0.000011>
+1234  10:15:23.002734 mmap(NULL, 94321, PROT_READ, MAP_PRIVATE, 3, 0) = 0x7f8a1c000000 <0.000019>
+1234  10:15:23.002901 close(3)          = 0 <0.000009>
+1234  10:15:23.003045 openat(AT_FDCWD, "/lib/x86_64-linux-gnu/libselinux.so.1", O_RDONLY|O_CLOEXEC) = 3 <0.000031>
+1234  10:15:23.003234 read(3, "\\177ELF\\2\\1\\1\\0\\0\\0\\0\\0\\0\\0\\0\\0\\3\\0>\\0\\1\\0\\0\\0\\260n\\0\\0\\0\\0\\0\\0"..., 832) = 832 <0.000018>
+1234  10:15:23.003389 fstat(3, {st_mode=S_IFREG|0644, st_size=166280, ...}) = 0 <0.000010>
+1234  10:15:23.003512 mmap(NULL, 2262344, PROT_READ, MAP_PRIVATE|MAP_DENYWRITE, 3, 0) = 0x7f8a1bc00000 <0.000045>
+1234  10:15:23.003689 close(3)          = 0 <0.000008>
+1234  10:15:23.004123 openat(AT_FDCWD, "/tmp", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 3 <0.000067>
+1234  10:15:23.004256 fstat(3, {st_mode=S_IFDIR|0777, st_size=4096, ...}) = 0 <0.000012>
+1234  10:15:23.004389 getdents64(3, 0x55aabbcc2000 /* 28 entries */, 32768) = 896 <0.000234>
+1234  10:15:23.004723 getdents64(3, 0x55aabbcc2000 /* 0 entries */, 32768) = 0 <0.000019>
+1234  10:15:23.004889 close(3)          = 0 <0.000010>
+1234  10:15:23.005045 fstat(1, {st_mode=S_IFCHR|0620, st_rdev=makedev(0x88, 0x1), ...}) = 0 <0.000011>
+1234  10:15:23.005189 write(1, "total 48\\ndrwxrwxrwt 13 root root 4096 Apr 17 10:15 .\\n", 56) = 56 <0.000089>
+1234  10:15:23.005456 write(1, "drwxr-xr-x 22 root root 4096 Mar 28 09:12 ..\\n", 47) = 47 <0.000067>
+1234  10:15:23.005634 write(1, "-rw-r--r--  1 mikau mikau 1247 Apr 17 10:14 notes.txt\\n", 55) = 55 <0.000072>
+1234  10:15:23.005823 close(1)          = 0 <0.000009>
+1234  10:15:23.005945 close(2)          = 0 <0.000008>
+1234  10:15:23.006078 exit_group(0)     = ?
+1234  10:15:23.006145 +++ exited with 0 +++
+2001  10:15:24.100000 execve("/usr/bin/curl", ["curl", "-s", "https://api.example.com/data"], 0x7fffdead0000 /* 45 vars */) = 0 <0.000456>
+2001  10:15:24.101234 brk(NULL)         = 0x55ccdd001000 <0.000013>
+2001  10:15:24.101456 openat(AT_FDCWD, "/etc/resolv.conf", O_RDONLY|O_CLOEXEC) = 3 <0.000034>
+2001  10:15:24.101623 read(3, "nameserver 8.8.8.8\\nnameserver 1.1.1.1\\n", 4096) = 42 <0.000023>
+2001  10:15:24.101789 close(3)          = 0 <0.000009>
+2001  10:15:24.101923 socket(AF_INET, SOCK_DGRAM|SOCK_NONBLOCK, IPPROTO_IP) = 3 <0.000031>
+2001  10:15:24.102078 connect(3, {sa_family=AF_INET, sin_port=htons(53), sin_addr=inet_addr("8.8.8.8")}, 16) = 0 <0.000019>
+2001  10:15:24.102234 sendto(3, "\\x12\\x34\\x01\\x00...", 46, MSG_NOSIGNAL, NULL, 0) = 46 <0.000078>
+2001  10:15:24.102456 poll([{fd=3, events=POLLIN}], 1, 5000) = 1 ([{fd=3, revents=POLLIN}]) <0.012345>
+2001  10:15:24.114923 recvfrom(3, "\\x12\\x34\\x81\\x80...", 65536, 0, {sa_family=AF_INET, sin_port=htons(53), sin_addr=inet_addr("8.8.8.8")}, [28->16]) = 62 <0.000089>
+2001  10:15:24.115156 close(3)          = 0 <0.000011>
+2001  10:15:24.115289 socket(AF_INET, SOCK_STREAM|SOCK_CLOEXEC, IPPROTO_TCP) = 3 <0.000045>
+2001  10:15:24.115434 connect(3, {sa_family=AF_INET, sin_port=htons(443), sin_addr=inet_addr("93.184.216.34")}, 16) = -1 EINPROGRESS (Operation now in progress) <0.000067>
+2001  10:15:24.115623 poll([{fd=3, events=POLLOUT}], 1, 300000) = 1 ([{fd=3, revents=POLLOUT}]) <0.025678>
+2001  10:15:24.141567 getsockopt(3, SOL_SOCKET, SO_ERROR, [0], [4]) = 0 <0.000014>
+2001  10:15:24.141712 sendto(3, "GET /data HTTP/1.1\\r\\nHost: api.example.com\\r\\n\\r\\n", 76, MSG_NOSIGNAL, NULL, 0) = 76 <0.000123>
+2001  10:15:24.142045 poll([{fd=3, events=POLLIN}], 1, 300000) = 1 ([{fd=3, revents=POLLIN}]) <0.034567>
+2001  10:15:24.176723 recvfrom(3, "HTTP/1.1 200 OK\\r\\nContent-Type: application/json\\r\\n"..., 16384, 0, NULL, NULL) = 1247 <0.000145>
+2001  10:15:24.177012 write(1, "{\\"status\\":\\"ok\\",\\"data\\":[1,2,3]}\\n", 30) = 30 <0.000078>
+2001  10:15:24.177234 close(3)          = 0 <0.000012>
+2001  10:15:24.177389 close(1)          = 0 <0.000009>
+2001  10:15:24.177489 exit_group(0)     = ?
+2001  10:15:24.177567 +++ exited with 0 +++
+3500  10:15:25.200000 execve("/bin/bash", ["bash", "-c", "for i in 1 2 3; do echo $i; done"], 0x7fffcafe0000 /* 45 vars */) = 0 <0.000567>
+3500  10:15:25.201234 brk(NULL)         = 0x55eeff001000 <0.000012>
+3500  10:15:25.201456 access("/etc/passwd", R_OK) = 0 <0.000023>
+3500  10:15:25.201634 clone(child_stack=NULL, flags=CLONE_CHILD_CLEARTID|CLONE_CHILD_SETTID|SIGCHLD, child_tidptr=0x7f123400) = 3501 <0.000234>
+3501  10:15:25.201900 execve("/bin/echo", ["echo", "1"], 0x7fffbaad0000 /* 45 vars */) = 0 <0.000345>
+3501  10:15:25.202345 write(1, "1\\n", 2) = 2 <0.000045>
+3501  10:15:25.202423 exit_group(0)     = ?
+3501  10:15:25.202489 +++ exited with 0 +++
+3500  10:15:25.202567 wait4(3501, [{WIFEXITED(s) && WEXITSTATUS(s) == 0}], 0, NULL) = 3501 <0.001023>
+3500  10:15:25.203678 clone(child_stack=NULL, flags=CLONE_CHILD_CLEARTID|CLONE_CHILD_SETTID|SIGCHLD, child_tidptr=0x7f123400) = 3502 <0.000189>
+3502  10:15:25.203912 execve("/bin/echo", ["echo", "2"], 0x7fffbaad0000 /* 45 vars */) = 0 <0.000312>
+3502  10:15:25.204289 write(1, "2\\n", 2) = 2 <0.000041>
+3502  10:15:25.204367 exit_group(0)     = ?
+3502  10:15:25.204434 +++ exited with 0 +++
+3500  10:15:25.204512 wait4(3502, [{WIFEXITED(s) && WEXITSTATUS(s) == 0}], 0, NULL) = 3502 <0.000912>
+3500  10:15:25.205512 clone(child_stack=NULL, flags=CLONE_CHILD_CLEARTID|CLONE_CHILD_SETTID|SIGCHLD, child_tidptr=0x7f123400) = 3503 <0.000201>
+3503  10:15:25.205745 execve("/bin/echo", ["echo", "3"], 0x7fffbaad0000 /* 45 vars */) = 0 <0.000298>
+3503  10:15:25.206089 write(1, "3\\n", 2) = 2 <0.000043>
+3503  10:15:25.206167 exit_group(0)     = ?
+3503  10:15:25.206234 +++ exited with 0 +++
+3500  10:15:25.206312 wait4(3503, [{WIFEXITED(s) && WEXITSTATUS(s) == 0}], 0, NULL) = 3503 <0.000823>
+3500  10:15:25.207189 read(0, "", 1024) = 0 <0.000018>
+3500  10:15:25.207267 exit_group(0)     = ?
+3500  10:15:25.207334 +++ exited with 0 +++`;
+
+/* ── MODULE: parser.js ─────────────────────────────────────────────────── */
+/**
+ * Parse strace -f -tt -T output.
+ * Expected line format:
+ *   PID  HH:MM:SS.ffffff syscall(args...) = retval [errno desc] <duration>
+ * Also handles:
+ *   PID  HH:MM:SS.ffffff +++ exited with N +++
+ *   PID  HH:MM:SS.ffffff --- SIGxxx ... ---
+ *   PID  HH:MM:SS.ffffff syscall(args <unfinished ...>
+ *   PID  HH:MM:SS.ffffff <... syscall resumed>) = retval <dur>
+ */
+function parseStrace(raw){
+  const lines = raw.split(/\r?\n/);
+  const events = [];
+  const unfinished = new Map(); // pid -> partial event
+
+  // time HH:MM:SS.ffffff -> ms from first timestamp
+  let t0 = null;
+  const toMs = (h,m,s,us)=>(((h*60+m)*60+s)*1000) + us/1000;
+
+  const RE_MAIN = /^(\d+)\s+(\d{2}):(\d{2}):(\d{2})\.(\d{1,6})\s+(.*)$/;
+  const RE_EXIT = /^\+\+\+ exited with (-?\d+) \+\+\+$/;
+  const RE_SIG  = /^--- (SIG\w+) .* ---$/;
+  const RE_KILLED = /^\+\+\+ killed by (SIG\w+).*\+\+\+$/;
+  const RE_UNFIN = /^(\w+)\((.*)<unfinished \.\.\.>$/;
+  const RE_RESUM = /^<\.\.\. (\w+) resumed>(.*)$/;
+  const RE_CALL  = /^(\w+)\((.*)\)\s*=\s*(.+?)(?:\s+<(\d+\.\d+)>)?$/;
+
+  for (const line of lines){
+    if (!line.trim()) continue;
+    const mm = RE_MAIN.exec(line);
+    if (!mm) continue;
+    const pid = parseInt(mm[1],10);
+    const h = parseInt(mm[2],10), m = parseInt(mm[3],10), s = parseInt(mm[4],10);
+    const us = parseInt(mm[5].padEnd(6,'0'),10);
+    const tAbs = toMs(h,m,s,us);
+    if (t0 === null) t0 = tAbs;
+    const t = tAbs - t0;
+    const rest = mm[6];
+
+    // process-exit / signal markers
+    let em;
+    if ((em = RE_EXIT.exec(rest))){
+      events.push({ pid, t, type:'exit', code:parseInt(em[1],10), syscall:'exit', args:'', retval:em[1], dur:0, error:null });
+      continue;
+    }
+    if ((em = RE_KILLED.exec(rest))){
+      events.push({ pid, t, type:'killed', signal:em[1], syscall:'killed', args:'', retval:em[1], dur:0, error:null });
+      continue;
+    }
+    if ((em = RE_SIG.exec(rest))){
+      events.push({ pid, t, type:'signal', signal:em[1], syscall:em[1], args:'', retval:'', dur:0, error:null });
+      continue;
+    }
+
+    // unfinished
+    if ((em = RE_UNFIN.exec(rest))){
+      unfinished.set(pid, { pid, t, syscall:em[1], args:em[2].replace(/\s*$/,'') });
+      continue;
+    }
+    // resumed
+    if ((em = RE_RESUM.exec(rest))){
+      const u = unfinished.get(pid);
+      if (u){
+        const tail = em[2];
+        const cm = RE_CALL.exec(u.syscall + '(' + u.args + tail);
+        if (cm){
+          pushCall(events, { pid, t:u.t }, cm);
+        }
+        unfinished.delete(pid);
+      }
+      continue;
+    }
+    // normal call
+    const cm = RE_CALL.exec(rest);
+    if (cm) pushCall(events, { pid, t }, cm);
+  }
+
+  return events.sort((a,b)=>a.t-b.t);
+}
+
+function pushCall(events, ctx, cm){
+  const syscall = cm[1];
+  const args = cm[2];
+  const retRaw = cm[3].trim();
+  const dur = cm[4] ? parseFloat(cm[4])*1000 : 0; // ms
+
+  // parse retval + possible errno
+  let retval = retRaw, error = null;
+  const em = /^(-?\d+|0x[0-9a-fA-F]+|\?)\s+(E[A-Z0-9]+)\s*\(([^)]+)\)/.exec(retRaw);
+  if (em){
+    retval = em[1];
+    error = { code: em[2], desc: em[3] };
+  }
+
+  events.push({
+    pid: ctx.pid, t: ctx.t, type:'call',
+    syscall, args, retval, dur, error
+  });
+}
+
+/* ── MODULE: colors.js ─────────────────────────────────────────────────── */
+const SYSCALL_CATEGORIES = {
+  'file':    { color:'#d4a84b', list:['open','openat','close','read','write','pread64','pwrite64','lseek','stat','fstat','lstat','newfstatat','access','faccessat','unlink','unlinkat','rename','mkdir','rmdir','getdents','getdents64','readlink','fcntl','dup','dup2','dup3','pipe','pipe2'] },
+  'memory':  { color:'#b87ac8', list:['brk','mmap','munmap','mprotect','madvise','mremap'] },
+  'process': { color:'#e57a5a', list:['execve','execveat','fork','vfork','clone','clone3','wait4','waitid','exit','exit_group','kill','tgkill','getpid','getppid','gettid','setpgid','setsid'] },
+  'network': { color:'#4a9eb8', list:['socket','bind','listen','accept','accept4','connect','send','sendto','sendmsg','recv','recvfrom','recvmsg','shutdown','getsockopt','setsockopt','getpeername','getsockname'] },
+  'signal':  { color:'#c85a5a', list:['rt_sigaction','rt_sigprocmask','rt_sigreturn','sigaltstack','signal','sigaction','pause'] },
+  'time':    { color:'#7ab87a', list:['gettimeofday','clock_gettime','clock_nanosleep','nanosleep','time','alarm'] },
+  'ipc':     { color:'#e5a04b', list:['futex','select','pselect6','poll','ppoll','epoll_create','epoll_create1','epoll_ctl','epoll_wait','epoll_pwait','eventfd','eventfd2'] },
+  'other':   { color:'#6a7a73', list:[] },
+};
+const SYSCALL_TO_CAT = {};
+for (const [cat, info] of Object.entries(SYSCALL_CATEGORIES)){
+  for (const sc of info.list) SYSCALL_TO_CAT[sc] = cat;
+}
+function categoryOf(sc){ return SYSCALL_TO_CAT[sc] || 'other'; }
+function colorFor(sc){ return SYSCALL_CATEGORIES[categoryOf(sc)].color; }
+
+/* ── MODULE: model.js ──────────────────────────────────────────────────── */
+function buildModel(events){
+  const processes = new Map();
+  const syscallStats = new Map(); // name -> {count,totalMs,maxMs,errors}
+  const errnoDist = new Map();
+  let errorCount = 0;
+
+  for (const e of events){
+    if (!processes.has(e.pid)){
+      processes.set(e.pid, { pid:e.pid, cmd:null, parent:null, children:[], events:[], start:e.t, end:e.t });
+    }
+    const p = processes.get(e.pid);
+    p.events.push(e);
+    p.end = Math.max(p.end, e.t + (e.dur || 0));
+
+    if (e.type === 'call'){
+      // stats
+      if (!syscallStats.has(e.syscall)){
+        syscallStats.set(e.syscall, { name:e.syscall, count:0, totalMs:0, maxMs:0, errors:0 });
+      }
+      const st = syscallStats.get(e.syscall);
+      st.count++;
+      st.totalMs += e.dur;
+      if (e.dur > st.maxMs) st.maxMs = e.dur;
+      if (e.error){
+        st.errors++;
+        errorCount++;
+        errnoDist.set(e.error.code, (errnoDist.get(e.error.code)||0) + 1);
+      }
+
+      // cmd from execve
+      if (e.syscall === 'execve' || e.syscall === 'execveat'){
+        const am = /^"([^"]+)"/.exec(e.args);
+        if (am) p.cmd = am[1];
+      }
+    }
+  }
+
+  // build parent-child from clone/fork/vfork
+  for (const e of events){
+    if (e.type !== 'call') continue;
+    if (['clone','clone3','fork','vfork'].includes(e.syscall)){
+      const childPid = parseInt(e.retval, 10);
+      if (!isNaN(childPid) && processes.has(childPid)){
+        const child = processes.get(childPid);
+        if (child.parent === null){
+          child.parent = e.pid;
+          const parent = processes.get(e.pid);
+          if (parent && !parent.children.includes(childPid)){
+            parent.children.push(childPid);
+          }
+        }
+      }
+    }
+  }
+
+  // duration = last event time
+  const totalDurationMs = events.length ? events[events.length-1].t : 0;
+
+  return { events, processes, syscallStats, errnoDist, errorCount, totalDurationMs };
+}
+
+/* ── MODULE: dom helpers ───────────────────────────────────────────────── */
+const NS = 'http://www.w3.org/2000/svg';
+const svg = (tag, attrs={}, parent=null)=>{
+  const el = document.createElementNS(NS, tag);
+  for (const [k,v] of Object.entries(attrs)) el.setAttribute(k, v);
+  if (parent) parent.appendChild(el);
+  return el;
+};
+const $  = s => document.querySelector(s);
+
+/* ── tooltip ───────────────────────────────────────────────────────────── */
+const tooltip = $('#tooltip');
+function showTip(html, x, y){
+  tooltip.innerHTML = html;
+  tooltip.style.display = 'block';
+  const rect = tooltip.getBoundingClientRect();
+  let nx = x + 14, ny = y + 14;
+  if (nx + rect.width  > window.innerWidth)  nx = x - rect.width  - 14;
+  if (ny + rect.height > window.innerHeight) ny = y - rect.height - 14;
+  tooltip.style.left = nx + 'px';
+  tooltip.style.top  = ny + 'px';
+}
+function hideTip(){ tooltip.style.display = 'none'; }
+
+/* ── MODULE: views/timeline.js ─────────────────────────────────────────── */
+function renderTimeline(el, state){
+  el.innerHTML = '';
+  const { model, selectedPid, filterSyscall } = state;
+  if (!model) return;
+
+  const procs = [...model.processes.values()]
+    .filter(p => selectedPid == null || p.pid === selectedPid)
+    .sort((a,b)=>a.start - b.start);
+
+  // zoom: if single process selected, use its [start,end] range
+  let tMin = 0, tMax = model.totalDurationMs || 1;
+  if (selectedPid != null && procs.length === 1){
+    const p = procs[0];
+    tMin = p.start;
+    tMax = p.end + Math.max((p.end-p.start)*0.02, 0.05);
+  }
+  const tSpan = Math.max(tMax - tMin, 0.001);
+
+  const laneH = 34;
+  const labelW = 130;
+  const padL = 14, padR = 14, padT = 28, padB = 30;
+  const W = el.clientWidth || el.parentNode.clientWidth || 900;
+  const H = padT + padB + procs.length * laneH + 10;
+  el.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  el.setAttribute('height', H);
+
+  const plotW = W - labelW - padL - padR;
+  const xOf = t => labelW + padL + ((t - tMin) / tSpan) * plotW;
+
+  // grid
+  const gridCount = 10;
+  for (let i=0; i<=gridCount; i++){
+    const x = labelW + padL + (i/gridCount) * plotW;
+    svg('line', { x1:x, y1:padT, x2:x, y2:H-padB, class:'tl-grid' }, el);
+    const tVal = tMin + (tSpan * i / gridCount);
+    const label = tVal.toFixed(tSpan < 1 ? 3 : (tSpan < 100 ? 2 : 1)) + 'ms';
+    svg('text', { x:x, y:H-padB+14, 'text-anchor':'middle', class:'tl-axis', fill:'#6a7a73' }, el).textContent = label;
+  }
+  svg('line', { x1:labelW+padL, y1:padT, x2:W-padR, y2:padT, stroke:'#2c3b36', 'stroke-width':0.5 }, el);
+
+  // lanes
+  procs.forEach((p, i)=>{
+    const y = padT + i * laneH;
+    svg('rect', { x:0, y:y, width:W, height:laneH,
+      class: 'tl-lane-bg' + (i%2 ? ' alt' : '') }, el);
+
+    const lab = svg('text', { x:10, y:y+laneH/2+4, class:'tl-lane-label tl-lane-label-pid' }, el);
+    lab.textContent = `${p.pid}`;
+    const cmd = svg('text', { x:52, y:y+laneH/2+4, class:'tl-lane-label' }, el);
+    const cmdTxt = (p.cmd || '<init>').split('/').pop();
+    cmd.textContent = cmdTxt.length > 12 ? cmdTxt.slice(0,11)+'…' : cmdTxt;
+
+    svg('line', { x1:0, y1:y+laneH, x2:W, y2:y+laneH, stroke:'#1f2a26', 'stroke-width':0.5 }, el);
+
+    for (const e of p.events){
+      if (e.type !== 'call') continue;
+      if (filterSyscall && e.syscall !== filterSyscall) continue;
+      if (e.t < tMin || e.t > tMax) continue;
+      const x = xOf(e.t);
+      const w = Math.max(2.5, (e.dur / tSpan) * plotW);
+      const color = e.error ? '#c85a5a' : colorFor(e.syscall);
+      const rect = svg('rect', {
+        x, y: y + 6, width: w, height: laneH - 14,
+        fill: color, opacity: 0.85,
+        class: 'tl-syscall',
+      }, el);
+      rect.addEventListener('mousemove', (ev)=>{
+        const retCls = e.error ? 'ret-err' : 'ret-ok';
+        const errHtml = e.error ? ` <span class="${retCls}">${e.error.code}</span> <span class="dim">${e.error.desc}</span>` : '';
+        showTip(`<b>${e.syscall}</b>(<span class="dim">${truncate(e.args, 120)}</span>) = <span class="${retCls}">${e.retval}</span>${errHtml}
+<span class="dim">pid ${e.pid} · t+${e.t.toFixed(3)}ms · dur ${e.dur.toFixed(3)}ms</span>`, ev.clientX, ev.clientY);
+      });
+      rect.addEventListener('mouseleave', hideTip);
+    }
+  });
+}
+
+function truncate(s, n){ return s.length > n ? s.slice(0, n-1) + '…' : s; }
+
+/* ── MODULE: views/flame.js ────────────────────────────────────────────── */
+function renderFlame(el, state){
+  el.innerHTML = '';
+  const { model, filterSyscall } = state;
+  if (!model) return;
+
+  // tree: root -> category -> syscall
+  const cats = {};
+  for (const [name, st] of model.syscallStats){
+    const cat = categoryOf(name);
+    if (!cats[cat]) cats[cat] = { name:cat, totalMs:0, count:0, children:[] };
+    cats[cat].totalMs += st.totalMs;
+    cats[cat].count += st.count;
+    cats[cat].children.push({ name, totalMs:st.totalMs, count:st.count, errors:st.errors, maxMs:st.maxMs });
+  }
+  const catArr = Object.values(cats).sort((a,b)=>b.totalMs - a.totalMs);
+  for (const c of catArr) c.children.sort((a,b)=>b.totalMs - a.totalMs);
+  const total = catArr.reduce((a,c)=>a + c.totalMs, 0) || 1;
+
+  const padL = 14, padR = 14, padT = 14, padB = 14;
+  const rowH = 28;
+  const W = el.clientWidth || el.parentNode.clientWidth || 900;
+  const H = padT + padB + rowH * 3 + 10;
+  el.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  el.setAttribute('height', H);
+  const plotW = W - padL - padR;
+
+  // row 0: total
+  drawFlameBar(el, padL, padT, plotW, rowH-2, '#d4a84b', 'total  ' + total.toFixed(2) + 'ms', null, null);
+
+  // row 1: categories
+  let x = padL;
+  for (const c of catArr){
+    const w = (c.totalMs / total) * plotW;
+    drawFlameBar(el, x, padT+rowH, w, rowH-2, SYSCALL_CATEGORIES[c.name].color,
+      c.name, `<b>${c.name}</b> category<br><span class="dim">${c.count} calls · ${c.totalMs.toFixed(3)}ms (${(c.totalMs/total*100).toFixed(1)}%)</span>`);
+    x += w;
+  }
+
+  // row 2: individual syscalls
+  x = padL;
+  for (const c of catArr){
+    for (const ch of c.children){
+      const w = (ch.totalMs / total) * plotW;
+      const color = ch.errors > 0 ? '#c85a5a' : SYSCALL_CATEGORIES[c.name].color;
+      const sel = filterSyscall === ch.name;
+      drawFlameBar(el, x, padT+rowH*2, w, rowH-2, color, ch.name,
+        `<b>${ch.name}</b><br><span class="dim">${ch.count} calls · total ${ch.totalMs.toFixed(3)}ms · max ${ch.maxMs.toFixed(3)}ms${ch.errors?' · '+ch.errors+' errors':''}</span>`,
+        ()=>{ window.__sv_setFilter(ch.name); }, sel);
+      x += w;
+    }
+  }
+}
+
+function drawFlameBar(el, x, y, w, h, color, label, tipHtml, onClick, selected){
+  const rect = svg('rect', {
+    x, y, width:Math.max(w,0.5), height:h, fill:color,
+    class:'flame-bar' + (selected ? ' selected' : '')
+  }, el);
+  if (w > 42){
+    const lab = svg('text', {
+      x: x + 6, y: y + h/2 + 3.5,
+      class:'flame-label'
+    }, el);
+    lab.textContent = label.length * 7 < w - 8 ? label : label.slice(0, Math.max(0, Math.floor((w-8)/7)));
+  }
+  if (tipHtml){
+    rect.addEventListener('mousemove', ev => showTip(tipHtml, ev.clientX, ev.clientY));
+    rect.addEventListener('mouseleave', hideTip);
+  }
+  if (onClick) rect.addEventListener('click', onClick);
+}
+
+/* ── MODULE: views/stats.js ────────────────────────────────────────────── */
+const ERRNO_DESC = {
+  EACCES:'Permission denied', EAGAIN:'Resource temporarily unavailable',
+  EBADF:'Bad file descriptor', EBUSY:'Device or resource busy',
+  ECHILD:'No child processes', ECONNREFUSED:'Connection refused',
+  ECONNRESET:'Connection reset by peer', EEXIST:'File exists',
+  EFAULT:'Bad address', EINPROGRESS:'Operation now in progress',
+  EINTR:'Interrupted system call', EINVAL:'Invalid argument',
+  EIO:'Input/output error', EISDIR:'Is a directory',
+  ENOENT:'No such file or directory', ENOMEM:'Cannot allocate memory',
+  ENOSPC:'No space left on device', ENOSYS:'Function not implemented',
+  ENOTCONN:'Transport endpoint is not connected', ENOTDIR:'Not a directory',
+  EPERM:'Operation not permitted', EPIPE:'Broken pipe',
+  ETIMEDOUT:'Connection timed out',
+};
+
+function renderStats(state){
+  const m = state.model;
+  if (!m) return;
+
+  // cards
+  const cards = $('#stats-cards');
+  cards.innerHTML = '';
+  const totalSyscallMs = [...m.syscallStats.values()].reduce((a,s)=>a+s.totalMs,0);
+  const cardData = [
+    ['events',     m.events.length.toLocaleString(), ''],
+    ['processes',  m.processes.size, ''],
+    ['syscall time', totalSyscallMs.toFixed(2), 'ms'],
+    ['errors / total', `${m.errorCount} / ${[...m.syscallStats.values()].reduce((a,s)=>a+s.count,0)}`, ''],
+  ];
+  for (const [k,v,u] of cardData){
+    const d = document.createElement('div');
+    d.className = 'stat-card';
+    d.innerHTML = `<div class="k">${k}</div><div class="v">${v}<span class="u">${u}</span></div>`;
+    cards.appendChild(d);
+  }
+
+  // top by count
+  const byCount = [...m.syscallStats.values()].sort((a,b)=>b.count - a.count).slice(0, 10);
+  const maxCount = byCount[0]?.count || 1;
+  renderBar($('#top-count'), byCount, s => s.count, maxCount, s => s.count.toString());
+
+  // top by time
+  const byTime = [...m.syscallStats.values()].sort((a,b)=>b.totalMs - a.totalMs).slice(0, 10);
+  const maxTime = byTime[0]?.totalMs || 1;
+  renderBar($('#top-time'), byTime, s => s.totalMs, maxTime, s => s.totalMs.toFixed(3)+'ms');
+
+  // slowest individual
+  const individual = m.events.filter(e => e.type === 'call' && e.dur > 0)
+    .sort((a,b)=>b.dur - a.dur).slice(0, 10)
+    .map(e => ({ name: e.syscall + ` <span style="color:var(--fg-mute)">pid ${e.pid}</span>`,
+                 dur: e.dur, ev:e }));
+  const maxSlow = individual[0]?.dur || 1;
+  renderBar($('#top-slow'), individual, s => s.dur, maxSlow, s => s.dur.toFixed(3)+'ms');
+
+  // errno
+  const ed = $('#errno-dist');
+  ed.innerHTML = '';
+  const entries = [...m.errnoDist.entries()].sort((a,b)=>b[1]-a[1]);
+  if (!entries.length){
+    ed.innerHTML = '<div style="color:var(--fg-dim);font-size:11px;padding:4px 0">no errors recorded</div>';
+  } else {
+    for (const [code, count] of entries){
+      const row = document.createElement('div');
+      row.className = 'errno-row';
+      row.innerHTML = `
+        <span class="errno-name">${code}</span>
+        <span class="errno-desc">${ERRNO_DESC[code] || ''}</span>
+        <span class="errno-count">${count}</span>`;
+      ed.appendChild(row);
+    }
+  }
+}
+
+function renderBar(container, items, getVal, max, fmt){
+  container.innerHTML = '';
+  for (const it of items){
+    const v = getVal(it);
+    const pct = (v / max) * 100;
+    const row = document.createElement('div');
+    row.className = 'bar-row';
+    row.innerHTML = `
+      <span class="bar-name">${it.name}</span>
+      <span class="bar-track"><span class="bar-fill" style="width:${pct}%"></span></span>
+      <span class="bar-val">${fmt(it)}</span>`;
+    container.appendChild(row);
+  }
+}
+
+/* ── MODULE: views/tree.js ─────────────────────────────────────────────── */
+function renderTree(el, state){
+  el.innerHTML = '';
+  const { model } = state;
+  if (!model) return;
+
+  // find roots (no parent in set)
+  const roots = [...model.processes.values()].filter(p => p.parent == null);
+
+  // simple recursive layout: compute subtree widths
+  const NW = 140, NH = 52, VGAP = 32, HGAP = 24;
+  const layout = (node, depth) => {
+    const p = model.processes.get(node);
+    if (!p) return { node, depth, width: NW+HGAP, subtree:[], info:null };
+    const children = p.children.map(c => layout(c, depth+1));
+    const width = children.length
+      ? children.reduce((a,c)=>a+c.width,0)
+      : NW + HGAP;
+    return { node, depth, width, subtree: children, info: p };
+  };
+  const trees = roots.map(r => layout(r.pid, 0));
+
+  // position
+  let cursorX = 20;
+  const maxDepth = { d: 0 };
+  const place = (t, yDepth) => {
+    maxDepth.d = Math.max(maxDepth.d, yDepth);
+    t.y = 20 + yDepth * (NH + VGAP);
+    if (!t.subtree.length){
+      t.x = cursorX + NW/2;
+      cursorX += NW + HGAP;
+      return;
+    }
+    t.subtree.forEach(ch => place(ch, yDepth+1));
+    const first = t.subtree[0], last = t.subtree[t.subtree.length-1];
+    t.x = (first.x + last.x)/2;
+  };
+  trees.forEach(t => place(t, 0));
+
+  const W = Math.max(el.clientWidth || 900, cursorX + 20);
+  const H = 40 + (maxDepth.d+1) * (NH + VGAP);
+  el.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  el.setAttribute('height', H);
+
+  // edges
+  const drawEdges = (t) => {
+    for (const c of t.subtree){
+      const path = `M${t.x},${t.y+NH} C${t.x},${t.y+NH+VGAP/2} ${c.x},${c.y-VGAP/2} ${c.x},${c.y}`;
+      svg('path', { d:path, class:'tree-edge' }, el);
+      // arrow head
+      svg('polygon', {
+        points: `${c.x-4},${c.y-6} ${c.x+4},${c.y-6} ${c.x},${c.y-1}`,
+        fill: '#3d4a44'
+      }, el);
+      drawEdges(c);
+    }
+  };
+  trees.forEach(drawEdges);
+
+  // nodes
+  const drawNodes = (t) => {
+    const isRoot = t.depth === 0;
+    const g = svg('g', {}, el);
+    svg('rect', { x:t.x - NW/2, y:t.y, width:NW, height:NH,
+      class: 'tree-node-box' + (isRoot ? ' root' : ''), rx:2 }, g);
+    svg('text', { x:t.x - NW/2 + 8, y:t.y + 18, class:'tree-node-pid' }, g).textContent = 'pid ' + t.node;
+    const cmdTxt = (t.info?.cmd || '<unknown>').split('/').pop();
+    svg('text', { x:t.x - NW/2 + 8, y:t.y + 33, class:'tree-node-cmd' }, g).textContent =
+      cmdTxt.length > 18 ? cmdTxt.slice(0,17)+'…' : cmdTxt;
+    svg('text', { x:t.x - NW/2 + 8, y:t.y + 46, class:'tree-node-cmd' }, g).textContent =
+      `${t.info?.events.length || 0} events`;
+
+    g.addEventListener('mousemove', ev => {
+      const p = t.info;
+      if (!p) return;
+      showTip(`<b>pid ${p.pid}</b>
+<span class="dim">cmd:</span> ${p.cmd || '<unknown>'}
+<span class="dim">events:</span> ${p.events.length}
+<span class="dim">lifetime:</span> ${(p.end-p.start).toFixed(3)}ms
+<span class="dim">children:</span> ${p.children.length ? p.children.join(', ') : '—'}`, ev.clientX, ev.clientY);
+    });
+    g.addEventListener('mouseleave', hideTip);
+
+    t.subtree.forEach(drawNodes);
+  };
+  trees.forEach(drawNodes);
+}
+
+/* ── MAIN ──────────────────────────────────────────────────────────────── */
+let state = { events:[], model:null, selectedPid:null, filterSyscall:null };
+
+function rerender(){
+  if (!state.model){
+    ['#timeline-svg','#flame-svg','#tree-svg'].forEach(s=>{ const el=$(s); if(el) el.innerHTML=''; });
+    $('#stats-cards').innerHTML = '';
+    $('#proc-list').innerHTML = '';
+    $('#s-events').textContent='0'; $('#s-procs').textContent='0';
+    $('#s-dur').textContent='0'; $('#s-errs').textContent='0';
+    $('#filter-wrap').innerHTML='';
+    return;
+  }
+  updateStatus();
+  updateProcList();
+  updateLegend();
+  updateFilterBadge();
+  renderTimeline($('#timeline-svg'), state);
+  renderFlame($('#flame-svg'), state);
+  renderStats(state);
+  renderTree($('#tree-svg'), state);
+}
+
+function updateStatus(){
+  const m = state.model;
+  $('#s-events').textContent = m.events.length.toLocaleString();
+  $('#s-procs').textContent  = m.processes.size;
+  $('#s-dur').textContent    = m.totalDurationMs.toFixed(2);
+  $('#s-errs').textContent   = m.errorCount;
+}
+
+function updateProcList(){
+  const list = $('#proc-list');
+  list.innerHTML = '';
+  const procs = [...state.model.processes.values()].sort((a,b)=>b.events.length - a.events.length);
+  $('#proc-count').textContent = procs.length;
+  for (const p of procs){
+    const el = document.createElement('div');
+    el.className = 'proc-item' + (state.selectedPid === p.pid ? ' active' : '');
+    const cmdShort = (p.cmd || '<unknown>').split('/').pop();
+    el.innerHTML = `
+      <span class="proc-pid">${p.pid}</span>
+      <span class="proc-meta">${cmdShort}</span>
+      <span class="proc-count">${p.events.length}</span>`;
+    el.onclick = ()=>{
+      state.selectedPid = state.selectedPid === p.pid ? null : p.pid;
+      rerender();
+    };
+    list.appendChild(el);
+  }
+}
+
+function updateLegend(){
+  const leg = $('#tl-legend');
+  leg.innerHTML = '';
+  for (const [cat, info] of Object.entries(SYSCALL_CATEGORIES)){
+    const d = document.createElement('div');
+    d.className = 'legend-item';
+    d.innerHTML = `<span class="legend-swatch" style="background:${info.color}"></span>${cat}`;
+    leg.appendChild(d);
+  }
+  // hint
+  const hint = document.createElement('div');
+  hint.className = 'legend-item';
+  hint.style.marginLeft = 'auto';
+  hint.style.color = 'var(--fg-mute)';
+  if (state.selectedPid != null){
+    hint.innerHTML = `<span style="color:var(--accent)">▸ zoomed to pid ${state.selectedPid}</span> · click again to unzoom`;
+  } else {
+    hint.innerHTML = `click a process to zoom`;
+  }
+  leg.appendChild(hint);
+}
+
+function updateFilterBadge(){
+  const wrap = $('#filter-wrap');
+  wrap.innerHTML = '';
+  if (state.filterSyscall){
+    const b = document.createElement('div');
+    b.className = 'filter-badge';
+    b.innerHTML = `syscall filter: <b>${state.filterSyscall}</b><span class="x">✕</span>`;
+    b.querySelector('.x').onclick = ()=>{ state.filterSyscall = null; rerender(); };
+    wrap.appendChild(b);
+  }
+}
+
+/* tabs */
+document.querySelectorAll('.tab').forEach(t=>{
+  t.onclick = ()=>{
+    document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+    document.querySelectorAll('.pane').forEach(x=>x.classList.remove('active'));
+    t.classList.add('active');
+    $('#pane-' + t.dataset.pane).classList.add('active');
+    if (state.model) rerender();
+  };
+});
+
+/* actions */
+$('#btn-load-sample').onclick = ()=>{
+  $('#log-input').value = SAMPLE_LOG;
+  parseAndRender();
+};
+$('#btn-parse').onclick = parseAndRender;
+$('#btn-clear').onclick = ()=>{
+  $('#log-input').value = '';
+  state = { events:[], model:null, selectedPid:null, filterSyscall:null };
+  rerender();
+};
+
+function parseAndRender(){
+  const raw = $('#log-input').value;
+  if (!raw.trim()){ alert('paste strace output first'); return; }
+  try {
+    const events = parseStrace(raw);
+    if (!events.length){ alert('no events parsed — check format (expects -tt -T)'); return; }
+    const model = buildModel(events);
+    state = { events, model, selectedPid:null, filterSyscall:null };
+    rerender();
+  } catch(e){
+    console.error(e);
+    alert('parse error: ' + e.message);
+  }
+}
+
+/* expose for flame graph click handler */
+window.__sv_setFilter = (sc)=>{
+  state.filterSyscall = state.filterSyscall === sc ? null : sc;
+  rerender();
+};
+
+/* handle window resize for responsive SVG redraw */
+let _rtid;
+window.addEventListener('resize', ()=>{
+  clearTimeout(_rtid);
+  _rtid = setTimeout(()=>{ if (state.model) rerender(); }, 150);
+});
+
+/* auto-load sample */
+$('#btn-load-sample').click();
+</script>
+</body>
+</html>
