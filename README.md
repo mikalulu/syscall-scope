@@ -2,4 +2,4 @@
 
 https://mikalulu.github.io/syscall-scope/
 
-![]('Screenshot from 2026-04-18 10-43-41.png')
+![](https://github.com/mikalulu/syscall-scope/blob/ded9e7a7ee5bca53077efb58ba6a9b50b50c3adf/Screenshot%20from%202026-04-18%2010-43-41.png)
